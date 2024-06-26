@@ -1,0 +1,537 @@
+#include <FS.h>
+#include <SPIFFS.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <ESP_Mail_Client.h>
+#include <WebServer.h>
+#include <Update.h>
+#include "DHTesp.h"
+
+//DHT11
+#define DHTpin 15
+DHTesp dht;
+
+const char* apSSID = "Contatto"; // SSID per l'Access Point
+const char* apPassword = "PasswordAP"; // Password per l'Access Point
+
+const int numNetworks = 2;
+
+const int contactPin = 13;
+
+const char* mqtt_server = "mqtt.cloud";
+const int mqtt_port = 1883;
+const char* mqtt_user = "Utente";
+const char* mqtt_password = "Password";
+const char* mqtt_topic = "Esp32/StatoContatto";
+const char* mqtt_topic_info = "Esp32/InfoDispositivo";
+
+const char* smtp_server = "smtp.server";
+const int smtp_port = 587;
+const char* email_sender_account = "smtp_account";
+const char* email_sender_password = "password_smtp";
+const char* email_recipient = "dest1.email";
+const char* email_recipient1 = "dest2.email";
+
+
+String ssid;
+String password;
+String serialNumber;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+SMTPSession smtp;
+ESP_Mail_Session session;
+SMTP_Message message;
+WebServer server(80);
+
+const char* webpage = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Contatto</title>
+  <style>
+    body {
+      background-image: url('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/4QAqRXhpZgAATU0AKgAAAAgAAABAAABAwABAAAAAQAAABoBBAAg
+AAAAXAAAABABIAAAIBAAABAAAAQAAACAAAAABAACAAAAEAAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8U
+HRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIy
+MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAoACgDASIAAhEBAxEB/8QAHwA
+AAgIDAQEBAQEAaaaaaaaaAAAAIBAwQFBhEAAAAAACAAAAECAAMRBBITIgABAAcAAAAAAAEAACAAAAGBOAAAAAAAB
+AICAAEAAAAAAABAAAAAD/2gAMAwEAAhEDEQA/APk41qxyueg8P3znJx+VOpCT7c96zgk+3Pezk81K88zqRJuQnT
+JJxzgjnHJzkcV0fjDrirzJXjvmPbJJY8H8KyQbS2+kR25/3j2bH50r9qabgTJ5/LnPp0qCxlhXVp4P2/n+dPvT
+jP5c8i/jX5Hy/SkgYAAGOT+X/ADzVzL2UvZTeEPC3ihGMqQ5J4+zkjknnilHJKjJwTk+Rz+eK5l5LZC5ktZDNI
+uSb1AOPTjgcnvU6KACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiig
+AooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAK
+KKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACii
+igAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAoooo
+AKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAC
+iiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAoo
+ooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKK
+ACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigA
+ooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKK
+KKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiii
+gAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooA
+KKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACi
+iigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAoooo
+AKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAC
+iiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAoo
+ooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKK
+ACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAo
+oooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKK
+KACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiig
+AooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAK
+KKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACii
+igAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigA);
+     background-size: cover;
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      flex-direction: column;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    form {
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+    }
+    .message {
+      background-color: rgba(0, 128, 0, 0.5);
+      padding: 10px;
+      border-radius: 5px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .info {
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Contatto</h1>
+  <div id="message"></div>
+  <form action="/save" method="post">
+    <label for="ssid">WiFi SSID:</label><br>
+    <input type="text" id="ssid" name="ssid"><br>
+    <label for="password">WiFi Password:</label><br>
+    <input type="password" id="password" name="password"><br>
+    <input type="submit" value="Save">
+  </form>
+  <br>
+  <form action="/setSerial" method="post">
+    <label for="serial">Numero Seriale:</label><br>
+    <input type="text" id="serial" name="serial"><br>
+    <input type="submit" value="Imposta">
+  </form>
+  <div class="info">
+    <p>Potenza Segnale: <span id="signal-strength">N/A</span></p>
+    <p>Stato Contatto: <span id="contact-status">N/A</span></p>
+    <p>Temperatura: <span id="temperature">N/A</span> &deg;C</p>
+  <br>
+  </div>
+  <form action="/resetwifi" method="post" onsubmit="return confirm('Sei sicuro di voler resettare il WiFi?')">
+  <input type="submit" value="Reset WiFi">
+  </form>
+  <br>
+  <script>
+    if (window.location.search.includes('saved=true')) {
+      document.getElementById('message').innerHTML = '<div class="message">Dati salvati con successo!</div>';
+    }
+    if (window.location.search.includes('reset=true')) {
+      document.getElementById('message').innerHTML = '<div class="message">WiFi reset con successo! Riavvio.</div>';
+    }
+    if (window.location.search.includes('serialsaved=true')) {
+      document.getElementById('message').innerHTML = '<div class="message">Numero seriale salvato con successo!</div>';
+    }
+
+    function updateInfo() {
+      fetch('/signal_strength').then(response => response.text()).then(data => {
+        document.getElementById('signal-strength').innerText = data + ' dBm';
+      });
+
+      fetch('/contact_status').then(response => response.text()).then(data => {
+        document.getElementById('contact-status').innerText = data;
+      });
+
+      fetch('/temperature').then(response => response.text()).then(data => {
+        document.getElementById('temperature').innerText = data;
+      });
+    }
+
+    setInterval(updateInfo, 5000); // aggiorna ogni 5 secondi
+    updateInfo(); // aggiorna subito alla prima apertura della pagina
+  </script>
+  <script>
+    // Veerifico se reset=true per messaggio
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('reset') === 'true') {
+      alert('WiFi resettato con successo.');
+    }
+  </script>
+</body>
+</html>
+)rawliteral";
+
+bool contactState = HIGH;
+bool lastContactState = HIGH;
+
+// Variabile per tracciare il tempo di inattività
+unsigned long apTimeoutStart = 0;
+const unsigned long AP_TIMEOUT = 5 * 60 * 1000; // 5 minuti in millisecondi
+
+void setup() {
+  Serial.begin(115200);
+  
+  //Stampo Temperatura
+  Serial.println();
+  Serial.println("Status\tHumidity (%)\tTemperature (C)\t(F)\tHeatIndex (C)\t(F)");
+  dht.setup(DHTpin, DHTesp::DHT11);
+
+  // Monta lo SPIFFS e cancella il contenuto
+  if (!SPIFFS.begin(true)) {
+    Serial.println("Errore partizione SPIFFS");
+    return;
+  }
+  // SPIFFS.format();
+  Serial.println("SPIFFS Formattato Correttamente");
+
+  pinMode(contactPin, INPUT_PULLUP);
+  
+  // Connessione all'Access Point
+  WiFi.softAP(apSSID, apPassword);
+  apTimeoutStart = millis(); // Inizia il timer di timeout
+
+  // Carica dati salvati, se presenti
+  loadCredentials();
+
+  // Attiva l'Access Point se le credenziali non sono presenti
+  if (ssid.isEmpty() || password.isEmpty()) {
+    WiFi.softAP(apSSID, apPassword);
+    Serial.println("Access Point Contatto attivato");
+  } else {
+    // Prova a connettersi alla rete WiFi memorizzata
+    connectToWiFi();
+  }
+
+  // If serial number is empty (first boot), generate and save it
+  if (serialNumber.length() == 0) {
+    generateSerialNumber();
+    saveCredentials(); // Salvo numero serie generato
+  }
+
+  //connectToWiFi();
+  client.setServer(mqtt_server, mqtt_port);
+  session.server.host_name = smtp_server;
+  session.server.port = smtp_port;
+  session.login.email = email_sender_account;
+  session.login.password = email_sender_password;
+  session.login.user_domain = "";
+  message.sender.name = "Contatto";
+  message.sender.email = email_sender_account;
+  message.subject = "Notifica Contatto";
+  message.addRecipient("Recipient", email_recipient);
+  message.addRecipient("Second Recipient", email_recipient1); // Secondo Destinatario
+  
+  server.on("/", handleRoot);
+  server.on("/save", HTTP_POST, handleSave);
+  server.on("/resetwifi", HTTP_POST, handleResetWiFi);
+  server.on("/background.jpg", HTTP_GET, handleImage);
+  server.on("/setSerial", HTTP_POST, handleSetSerial);
+  server.on("/signal_strength", HTTP_GET, handleSignalStrength);
+  server.on("/contact_status", HTTP_GET, handleContactStatus);
+  server.on("/temperature", HTTP_GET, handleTemperature);
+  server.begin();
+
+  // Stampa informazioni iniziali
+  printInfo();
+}
+
+void handleSignalStrength() {
+  int32_t rssi = WiFi.RSSI();
+  server.send(200, "text/plain", String(rssi));
+}
+
+void handleContactStatus() {
+  server.send(200, "text/plain", contactState == HIGH ? "Aperto" : "Chiuso");
+}
+
+void handleTemperature() {
+  float temperature = dht.getTemperature();
+  server.send(200, "text/plain", String(temperature, 1));
+}
+
+void generateSerialNumber() {
+  // Genero numero Serie  utilizzo combinazione millis() e random())
+  serialNumber = "Contatto-" + String(millis()) + "-" + String(random(0xffff), HEX);
+}
+
+void handleSetSerial() {
+  if (server.hasArg("serial")) {
+    serialNumber = server.arg("serial");
+    saveCredentials(); // Salva il numero seriale insieme alle altre credenziali
+    server.sendHeader("Location", "/?serialsaved=true");
+    server.send(303);
+    Serial.println("Numero Seriale impostato: " + serialNumber);
+  } else {
+    server.send(400, "text/plain", "Missing serial number");
+  }
+}
+
+void loop() {
+
+  delay(dht.getMinimumSamplingPeriod());
+
+  float humidity = dht.getHumidity();
+  float temperature = dht.getTemperature();
+  publishTemperature(temperature);
+
+  Serial.print(dht.getStatusString());
+  Serial.print("\t");
+  Serial.print(humidity, 1);
+  Serial.print("\t\t");
+  Serial.print(temperature, 1);
+  Serial.print("\t\t");
+  Serial.print(dht.toFahrenheit(temperature), 1);
+  Serial.print("\t\t");
+  Serial.print(dht.computeHeatIndex(temperature, humidity, false), 1);
+  Serial.print("\t\t");
+  Serial.println(dht.computeHeatIndex(dht.toFahrenheit(temperature), humidity, true), 1);
+  // Genera la stringa message
+  String message = dht.getStatusString();
+  message += "," + String(humidity, 1);
+  message += "," + String(temperature, 1);
+  message += "," + String(dht.toFahrenheit(temperature), 1);
+  message += "," + String(dht.computeHeatIndex(temperature, humidity, false), 1);
+
+  // Pubblica il messaggio su un topic MQTT
+  client.publish("Esp32/Dati", message.c_str());
+
+  server.handleClient();
+  contactState = digitalRead(contactPin);
+  if (contactState != lastContactState) {
+    if (contactState == HIGH) {
+      sendEmail("Contatto aperto");
+      sendMQTT("Contatto aperto");
+      Serial.println("Contatto aperto");
+    } else {
+      sendEmail("Contatto chiuso");
+      sendMQTT("Contatto chiuso");
+      Serial.println("Contatto chiuso");
+    }
+    lastContactState = contactState;
+  }
+  if (!client.connected()) {
+    connectToMQTT();
+  }
+  client.loop();
+  // Aggiunta timeout dell'access point di 5 minuti se connesso ad una rete WiFi
+  static unsigned long apStartMillis = millis();
+  if (WiFi.status() == WL_CONNECTED) {
+  apStartMillis = millis();  // resetta il timer se connesso
+  } 
+  else if (millis() - apStartMillis >= 300000) {  // 300000 millisecondi = 5 minuti
+    WiFi.softAPdisconnect(true);  // disattiva l'access point
+ }
+}
+
+void connectToWiFi() {
+  if (ssid.isEmpty() || password.isEmpty()) {
+    return; // Non fare nulla se le credenziali sono vuote
+  }
+
+  WiFi.begin(ssid.c_str(), password.c_str());
+
+  unsigned long startAttemptTime = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 10000) {
+    delay(400);
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Connessione WiFi fallita, riavvio ESP");
+    ESP.restart();
+  } else {
+    Serial.println("Connesso a WiFi: " + ssid);
+  }
+}
+
+void sendEmail(String status) {
+  // Temperatura
+  float temperature = dht.getTemperature();
+
+  // IP
+  String ipAddress = WiFi.localIP().toString();
+
+  // Segnale (RSSI)
+  int32_t rssi = WiFi.RSSI();
+
+  // Contenuto Email
+  String emailContent = "Stato: " + status + "\n" + "\n";
+  emailContent += "Temperatura: " + String(temperature, 1) + " °C\n" + "\n";
+  emailContent += "IP Scheda: " + ipAddress + "\n" + "\n";
+  emailContent += "Potenza Wifi: " + String(rssi) + " dBm\n" + "\n" + "-50 -70 Ottimo" + " " + "-80 -90 Scarso" + "\n" + "\n" + "\n";
+  emailContent += "Numero Seriale: " + serialNumber + "\n";
+
+  // Parametri Email
+  message.text.content = emailContent;
+  message.text.charSet = "us-ascii";
+  message.text.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
+
+  // SMTP server
+  if (!smtp.connect(&session)) {
+    Serial.println("Connessione SMTP fallita");
+    return;
+  }
+
+  // Invio email
+  if (!MailClient.sendMail(&smtp, &message)) {
+    Serial.println("Invio email fallito");
+    return;
+  }
+
+  // Termino SMTP
+  Serial.println("Email inviata con successo");
+  smtp.closeSession();
+}
+
+
+void sendMQTT(String status) {
+  if (!client.connected()) {
+    connectToMQTT();
+  }
+  client.publish(mqtt_topic, status.c_str());
+}
+
+void sendMQTTInfo(String info) {
+  if (client.connected()) {
+    client.publish(mqtt_topic_info, info.c_str());
+  }
+}
+
+void connectToMQTT() {
+  if (!client.connected()) {
+    if (!client.connect("ESP32Client", mqtt_user, mqtt_password)) {
+      Serial.println("Mancata connessione MQTT");
+      return;
+    } else {
+      Serial.println("Connesso a Broker");
+    }
+  }
+}
+
+void handleRoot() {
+  server.send(200, "text/html", webpage);
+}
+
+void handleSave() {
+  if (server.hasArg("ssid") && server.hasArg("password")) {
+    ssid = server.arg("ssid");
+    password = server.arg("password");
+    saveCredentials();
+    server.sendHeader("Location", "/?saved=true");
+    server.send(303);
+    delay(100);
+    sendMQTT(String("SSID: ") + ssid + ", Password: " + password);
+    printInfo();
+  } else {
+    server.send(400, "text/plain", "Missing parameters");
+  }
+}
+
+
+void handleResetWiFi() {
+  // Disconnetti dalla rete WiFi attuale
+  WiFi.disconnect(true);
+  delay(100);
+
+  // Connessione all'Access Point Contatto
+  WiFi.softAP(apSSID, apPassword);
+  Serial.println("Access Point Contatto attivato");
+
+  // Invia risposta di reset via server Web
+  server.sendHeader("Location", "/?reset=true");
+  server.send(303);
+
+  // Formatta SPIFFS e riavvia
+  delay(800); // Attendi per permettere al browser di ricevere la risposta
+  // Formatta SPIFFS
+  SPIFFS.format();
+  // Riavvia il dispositivo
+  ESP.restart();
+}
+
+void handleImage() {
+  File file = SPIFFS.open("/background.jpg", "r");
+  if (!file) {
+    server.send(404, "text/plain", "File not found");
+    return;
+  }
+  server.streamFile(file, "image/jpeg");
+  file.close();
+}
+void saveCredentials() {
+  File file = SPIFFS.open("/Credenziali.txt", "w");
+  if (!file) {
+    Serial.println("Errore scrittura credenziali");
+    return;
+  }
+  file.println(ssid);
+  file.println(password);
+  file.println(serialNumber);
+  file.close();
+}
+
+void loadCredentials() {
+  File file = SPIFFS.open("/Credenziali.txt", "r");
+  if (!file) {
+    Serial.println("File credenziali non trovato");
+    return;
+  }
+  ssid = file.readStringUntil('\n');
+  ssid.trim();
+  password = file.readStringUntil('\n');
+  password.trim();
+  serialNumber = file.readStringUntil('\n');
+  serialNumber.trim();
+  file.close();
+}
+
+void publishTemperature(float temperature) {
+  if (client.connected()) {
+    String payload = String(temperature, 1);  // Converti il float in stringa con una cifra decimale
+    client.publish("Esp32/Temperatura", payload.c_str());
+  }
+}
+
+void printInfo() {
+  Serial.println("===== Informazioni Contatto  =====");
+  Serial.print("SSID: ");
+  Serial.println(ssid);
+  Serial.print("Password: ");
+  Serial.println(password);
+  Serial.print("Serial Number: ");
+  Serial.println(serialNumber);
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("WiFi connesso, IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("WiFi non connesso");
+  }
+  Serial.print("Livello Segnale (RSSI): ");
+  Serial.print(WiFi.RSSI());
+  Serial.println(" dBm");
+  Serial.print("Stato MQTT: ");
+  Serial.println(client.connected() ? "Connesso" : "Non connesso");
+  Serial.println("========================");
+
+  // Invio delle informazioni del dispositivo tramite MQTT
+  String deviceInfo = "SSID: " + ssid + ", Password: " + password + ", Serial Number: " + serialNumber;
+  sendMQTT(deviceInfo);
+}
